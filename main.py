@@ -1,6 +1,34 @@
 from dotenv import load_dotenv
+from typing import List
+from langchain_core.messages import BaseMessage, ToolMessage
+from langgraph.graph import END, MessageGraph
+from chains import revisor, first_responder
+from tool_executor import execute_tools
 
 load_dotenv()
 
+MAX_ITERATIONS = 2
+builder = MessageGraph()
+builder.add_node("draft", first_responder)
+builder.add_node("execute_tools", execute_tools)
+builder.add_node("revise", revisor)
+builder.add_edge("draft", "execute_tools")
+builder.add_edge("execute_tools", "revise")
+
+def event_loop(state: List[BaseMessage]) -> str:
+    count_tool_visits = sum(isinstance(item, ToolMessage) for item in state)
+    if count_tool_visits > MAX_ITERATIONS:
+        return END
+    return "execute_tools"
+
+builder.add_conditional_edges("revise", event_loop, {END:END, "execute_tools":"execute_tools"})
+builder.set_entry_point("draft")
+
+graph = builder.compile()
+
 if __name__ == "__main__":
     print("Reflexion Agent is running...")
+    res = graph.invoke(
+            "Dame una explicación detallada sobre la teoría de la relatividad y cómo afecta la orbita de los planetas alrededor del sol."
+    )
+    print("Final Response:", res[-1].tool_calls[0]["args"]["answer"])
